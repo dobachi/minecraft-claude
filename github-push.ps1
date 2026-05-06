@@ -10,8 +10,15 @@ $REPO_NAME = "minecraft-claude"
 $VISIBILITY = "public"   # public or private
 
 # Per-repo identity used for commits in THIS repository only.
-$LOCAL_GIT_USER  = "dobachi"
-$LOCAL_GIT_EMAIL = "dobachi1983oss@gmail.com"
+# !!! EDIT THESE BEFORE RUNNING !!!
+$LOCAL_GIT_USER  = "your-github-username"
+$LOCAL_GIT_EMAIL = "you@example.com"
+
+# Refuse to run with placeholder values still in place.
+if ($LOCAL_GIT_USER -eq "your-github-username" -or $LOCAL_GIT_EMAIL -eq "you@example.com") {
+    Write-Error "Please edit `$LOCAL_GIT_USER and `$LOCAL_GIT_EMAIL at the top of $PSCommandPath before running."
+    exit 1
+}
 
 Write-Host "=== GitHub initial push ===" -ForegroundColor Cyan
 
@@ -37,6 +44,43 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 Write-Host "gh auth: OK" -ForegroundColor Green
+
+# Use SSH protocol for git operations.
+gh config set git_protocol ssh -h github.com | Out-Null
+
+# Ensure SSH key exists; create one if not, and register it with GitHub.
+$sshDir = Join-Path $env:USERPROFILE ".ssh"
+$keyPath = Join-Path $sshDir "id_ed25519"
+$pubPath = "$keyPath.pub"
+if (-not (Test-Path $sshDir)) {
+    New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+}
+if (-not (Test-Path $keyPath)) {
+    Write-Host "Generating ed25519 SSH key at $keyPath ..." -ForegroundColor Yellow
+    ssh-keygen -t ed25519 -C $LOCAL_GIT_EMAIL -f $keyPath -N '""'
+}
+
+# Register pub key with GitHub if not already there.
+$registered = gh ssh-key list 2>$null
+if (-not ($registered -match [regex]::Escape((Get-Content $pubPath -Raw).Split(' ')[1]))) {
+    Write-Host "Registering public key with GitHub..." -ForegroundColor Yellow
+    gh ssh-key add $pubPath --title "Windows-$env:COMPUTERNAME" | Out-Null
+}
+
+# Refresh github.com entry in known_hosts (handles stale entries from before GitHub's
+# March 2023 RSA host key rotation, which cause 'REMOTE HOST IDENTIFICATION HAS CHANGED').
+$knownHosts = Join-Path $sshDir "known_hosts"
+Write-Host "Refreshing github.com entry in known_hosts..." -ForegroundColor Yellow
+ssh-keygen -R github.com 2>&1 | Out-Null
+ssh-keyscan -t ed25519,rsa github.com 2>$null | Out-File -Append -Encoding ASCII $knownHosts
+
+# Sanity-check: connecting should now succeed (exit 1 here is normal for `ssh -T`).
+$probe = & ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes git@github.com 2>&1
+if ($probe -match "successfully authenticated") {
+    Write-Host "  SSH to github.com: OK ($probe)" -ForegroundColor DarkGray
+} else {
+    Write-Warning "SSH probe to github.com failed:`n$probe"
+}
 
 # git init if needed
 if (-not (Test-Path ".git")) {
@@ -86,18 +130,33 @@ $ErrorActionPreference = "SilentlyContinue"
 $exists = ($LASTEXITCODE -eq 0)
 $ErrorActionPreference = $prevPref
 
+$sshUrl = "git@github.com:$fullName.git"
+
 if (-not $exists) {
     Write-Host "  Creating $fullName ($VISIBILITY)..." -ForegroundColor Yellow
-    gh repo create $fullName --$VISIBILITY --source . --remote origin --push
-} else {
-    Write-Host "  Repo already exists. Pushing..." -ForegroundColor Yellow
-    if (-not (git remote | Select-String -Pattern "^origin$")) {
-        git remote add origin "https://github.com/$fullName.git"
+    gh repo create $fullName --$VISIBILITY --source . --remote origin
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "gh repo create failed."
+        exit 1
     }
-    git branch -M main
-    git push -u origin main
+} else {
+    Write-Host "  Repo already exists." -ForegroundColor Yellow
+    if (-not (git remote | Select-String -Pattern "^origin$")) {
+        git remote add origin $sshUrl
+    }
+}
+
+# Force SSH remote URL.
+git remote set-url origin $sshUrl
+git branch -M main
+
+Write-Host "[5/5] Pushing to $sshUrl ..." -ForegroundColor Green
+git push -u origin main
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "git push failed. Check 'git remote -v', 'ssh -T git@github.com', and 'gh auth status'."
+    exit 1
 }
 
 Write-Host ""
-Write-Host "[5/5] Done." -ForegroundColor Cyan
+Write-Host "Done." -ForegroundColor Cyan
 Write-Host "URL: https://github.com/$fullName" -ForegroundColor Green

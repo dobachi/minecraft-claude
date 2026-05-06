@@ -3,6 +3,9 @@
 Windows + Minecraft Bedrock Edition を Claude Desktop から操作するための環境構築ガイド。
 [Mming-Lab/minecraft-bedrock-mcp-server](https://github.com/Mming-Lab/minecraft-bedrock-mcp-server) を利用する。
 
+> **本READMEの表記について**
+> このREADMEとサンプルファイルでは、各自が clone / 配置するフォルダのフルパスを **`<PROJECT_DIR>`** と表記しています。実行時はあなたの環境のパス（例：`C:\Users\<USER>\projects\minecraft-claude` や `D:\workspace\minecraft-claude` など、自由）に読み替えてください。
+
 ## 仕組み（先に理解してください）
 
 ```
@@ -58,7 +61,7 @@ git --version
 ### 2. このフォルダで `setup.ps1` を実行
 
 ```powershell
-cd J:\minecraft\minecraft-claude\minecraft
+cd <PROJECT_DIR>     # 例: cd C:\Users\<USER>\projects\minecraft-claude
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
@@ -71,7 +74,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 ### 3. Claude Desktop の設定ファイルを編集
 
-`%APPDATA%\Claude\claude_desktop_config.json` を開いて、`claude_desktop_config.example.json` の内容を `mcpServers` にマージする。Claude Desktop を **完全終了 → 再起動**（タスクトレイ常駐も終了させる）。
+`%APPDATA%\Claude\claude_desktop_config.json` を開いて、`claude_desktop_config.example.json` の内容を `mcpServers` にマージする。**`<PROJECT_DIR>` の部分は自分のフルパスに置き換える**こと（JSONなのでバックスラッシュは `\\` とエスケープ）。Claude Desktop を **完全終了 → 再起動**（タスクトレイ常駐も終了させる）。
 
 ### 4. Minecraft 側で接続
 
@@ -121,10 +124,12 @@ winget install GitHub.cli
 
 # GitHubアカウントでログイン（ブラウザが開くのでデバイスコードを入力）
 gh auth login
-# 選択: GitHub.com -> HTTPS -> Yes (Git操作も認証) -> Login with a web browser
+# 選択: GitHub.com -> SSH -> Generate a new SSH key (or use existing) -> Login with a web browser
 ```
 
-`gh auth status` で認証済みになっていれば準備OK。
+`gh auth status` で認証済みになっていれば準備OK。`github-push.ps1` がSSH鍵の生成・登録・known_hosts追加まで自動でやるので、手動セットアップは不要。
+
+> **メモ：** このプロジェクトはSSH方式でpushする。HTTPS方式に変えたい場合はスクリプトの該当箇所（`gh config set git_protocol`、remote URLの組み立て）を `https://github.com/...` に書き換える。
 
 ### git identityの方針：グローバルではなくローカル設定
 
@@ -141,19 +146,31 @@ git config --global --unset user.email
 
 ### 初回push
 
+`github-push.ps1` 冒頭の以下を **必ず自分の値に編集してから**実行する：
+
 ```powershell
-cd J:\minecraft\minecraft-claude\minecraft
+$REPO_NAME       = "minecraft-claude"           # GitHub上のリポ名
+$VISIBILITY      = "public"                     # public または private
+$LOCAL_GIT_USER  = "your-github-username"       # コミット署名のユーザ名
+$LOCAL_GIT_EMAIL = "you@example.com"            # コミット署名のメール
+```
+
+その後：
+
+```powershell
+cd <PROJECT_DIR>
 powershell -ExecutionPolicy Bypass -File .\github-push.ps1
 ```
 
 スクリプトは以下を順に行う：
 
 1. git / gh の存在と認証状態をチェック
-2. `git init` → 全ファイル add → コミット
-3. GitHub に `<自分のアカウント>/minecraft-claude` をPublicで作成（既にあればスキップ）
-4. `origin` に push
+2. SSH鍵の生成・GitHub登録・known_hosts追加（必要なら）
+3. `git init` → このリポ専用の identity を `--local` 設定 → 全ファイル add → コミット
+4. GitHub に `<自分のアカウント>/<REPO_NAME>` を作成（既にあればスキップ）
+5. `origin` に push
 
-`server/`（clone した Mming-Lab 本体）と `claude_desktop_config.json`（個人パス入り）は `.gitignore` で除外している。リポ名や公開範囲を変えたい場合は `github-push.ps1` 冒頭の `$REPO_NAME` / `$VISIBILITY` を編集。
+`server/`（clone した Mming-Lab 本体）と `claude_desktop_config.json`（個人パス入り）は `.gitignore` で除外している。
 
 ### 2回目以降の更新
 
