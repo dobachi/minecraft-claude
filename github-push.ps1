@@ -78,9 +78,13 @@ if ($pending) {
 $ghUser = (gh api user --jq .login).Trim()
 $fullName = "$ghUser/$REPO_NAME"
 Write-Host "[4/5] Ensuring remote repo $fullName exists..." -ForegroundColor Green
-$exists = $false
-gh repo view $fullName 2>&1 | Out-Null
-if ($LASTEXITCODE -eq 0) { $exists = $true }
+
+# Probe for repo existence WITHOUT tripping $ErrorActionPreference=Stop on gh's stderr.
+$prevPref = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+& gh repo view $fullName *> $null
+$exists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevPref
 
 if (-not $exists) {
     Write-Host "  Creating $fullName ($VISIBILITY)..." -ForegroundColor Yellow
