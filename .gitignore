@@ -1,0 +1,23 @@
+# Mming-Lab MCPサーバ本体（setup.ps1 で clone するので追跡不要）
+server/
+
+# Node
+node_modules/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# 個人の Claude Desktop 設定（ユーザー固有のパスやAPIキーが入りうる）
+claude_desktop_config.json
+
+# 認証・秘密情報
+.env
+.env.*
+*.key
+*.pem

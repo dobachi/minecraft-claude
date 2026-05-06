@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "minecraft-bedrock": {
+      "command": "node",
+      "args": [
+        "J:\\minecraft\\minecraft-claude\\minecraft\\server\\dist\\server.js"
+      ]
+    }
+  }
+}
