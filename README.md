@@ -123,7 +123,19 @@ CheckNetIsolation LoopbackExempt -a -n="Microsoft.MinecraftUWP_8wekyb3d8bbwe"
 CheckNetIsolation LoopbackExempt -s | Select-String "Minecraft"
 ```
 
-#### 4-b. ワールド側の準備
+#### 4-b. 暗号化WebSocket要求の解除（初回のみ）
+
+Minecraft Bedrock は既定で TLS 暗号化された WebSocket (`wss://`) しか受け付けない。MCPサーバはローカル通信なので平文 (`ws://`) で動作するため、この要求を OFF にする必要がある。
+
+Minecraft 内で：
+
+1. **設定 (Settings)** を開く
+2. **一般 (General)** タブ → **プロフィール (Profile)** セクション
+3. **「暗号化された Websockets を必須にする」（Require Encrypted Websockets）** を **OFF**
+
+未解除の場合「Websocket サーバーへの要求が拒否されました。設定に移動して有効にしてください」と表示される。
+
+#### 4-c. ワールド側の準備
 
 1. 動作確認用にシングルプレイのワールドを「**チート: ON**」で作成
 2. ワールドに入ったらチャットを開いて以下を実行：
@@ -132,17 +144,69 @@ CheckNetIsolation LoopbackExempt -s | Select-String "Minecraft"
    ```
 3. 「接続しました」と出れば成功
 
-#### 4-c. うまくいかない時のチェックリスト
+#### 4-d. うまくいかない時のチェックリスト
 
-- MCPサーバ（Node.js）が起動しているか：Claude Desktop ログで `minecraft-bedrock` が緑になっているか確認
-- ポート 8001 が他プロセスで使われていないか：`netstat -ano | findstr :8001`
-- ループバック例外が入っているか：`enable-connect.ps1 -List` または上の `CheckNetIsolation` 確認コマンド
-- Minecraft の **Preview版** を使っている場合はパッケージ名が違う（`enable-connect.ps1` なら自動で網羅）
-- ワールド作成時にチートをONにし忘れていないか
+| 症状 | 確認項目 |
+| --- | --- |
+| 「Websocketサーバーへの要求が拒否されました」 | **4-b** の暗号化WebSocket要求がOFFか |
+| 何も応答がない／タイムアウト | **4-a** のループバック例外が入っているか（`enable-connect.ps1 -List`） |
+| 「コマンドが見つかりません」 | ワールドのチートがONか／OP権限があるか |
+| 「Connection refused」 | MCPサーバ（Node.js）が起動しているか／ポート8001が空いているか（`netstat -ano \| findstr :8001`） |
+| Claude にツールが出ない | Claude Desktop ログで `minecraft-bedrock` が緑になっているか |
+| Preview版を使っている | `enable-connect.ps1` がBeta/Educationも自動で網羅する |
 
 ### 5. Claude から操作
 
-Claude Desktop で「目の前に石のキューブを建てて」「半径10の球体を作って」などと指示。
+Claude Desktop アプリで自然言語で指示するだけ。次節の動作確認を順に試すと、各ツール群（読み取り系→書き込み系→建築系）が一通り動くか確認できる。
+
+## 動作確認シナリオ
+
+セットアップ完了後、Claude Desktop の新規チャットで以下を順に試す。各手順の **Claude側の応答** はモデルや会話の流れで多少変わるが、ツールが呼び出されて結果が返ってくれば成功。
+
+### Step 1. 読み取り系（一番安全・副作用なし）
+
+Minecraft内で動かなくても安全な、状態取得だけのテスト。
+
+| プロンプト例 | 呼ばれるツール（目安） | 期待される確認ポイント |
+| --- | --- | --- |
+| 「いまどこにいる？座標を教えて」 | `player_*` | 現在のXYZ座標が返る |
+| 「いまの体力と空腹度は？」 | `player_*` | HP・空腹値が返る |
+| 「いまの天気と時刻を教えて」 | `world_*` | 天気・時刻（tick）が返る |
+| 「ダイヤモンドのレシピを調べて」 | `minecraft_wiki` | Wiki検索結果が返る |
+
+ここで全部失敗するなら、Minecraft↔MCPサーバの接続自体が切れている可能性が高い。Minecraft側で `/connect localhost:8001/ws` をやり直す。
+
+### Step 2. 書き込み系（ワールドへの軽い変更）
+
+シングルプレイのテスト用ワールドで実行する。**重要なワールドでは試さない**こと。
+
+| プロンプト例 | 呼ばれるツール（目安） | 期待される確認ポイント |
+| --- | --- | --- |
+| 「天気を晴れにして時刻を昼にして」 | `world_*` | 即座に晴れ・昼に切り替わる |
+| 「いまの足元から1ブロック上にダイヤモンドブロックを置いて」 | `blocks_*` | 指定位置にブロックが出現 |
+| 「足元から東に5マス進んだ位置のブロック種類を教えて」 | `blocks_*` | ブロック名が返る |
+
+### Step 3. 建築系（派手だが範囲は限定的）
+
+足元の周囲が更地である場所で実行。
+
+| プロンプト例 | 呼ばれるツール（目安） | 期待される確認ポイント |
+| --- | --- | --- |
+| 「目の前に石のキューブを5×5×5で建てて」 | `build_cube` | 立方体が出現 |
+| 「いまの位置の上空20ブロックに半径8の球体をガラスで作って」 | `build_sphere` | 空中に球体が出現 |
+| 「足元から北に50マス先までガラスで一直線の橋を作って」 | `build_line` | 直線状の橋ができる |
+| 「半径10、高さ20の円柱を石レンガで建てて」 | `build_cylinder` | 円柱が出現 |
+
+### Step 4. Agent系（任意・要 Education機能）
+
+`agent_*` 系は Education Edition の Agent（プログラミング教育用ロボット）の機能。Bedrock Retail版のシングルワールドでは Agent が出現しないので、このグループは**スキップしてOK**。Education機能を有効にしたワールドで「Agentを召喚して」「Agentを5マス前進させて」などを試す。
+
+### 失敗時の切り分け
+
+- **Step1も失敗する** → Minecraft↔MCPサーバの接続切れ。`/connect localhost:8001/ws` 再実行
+- **Step1は成功、Step2〜3で失敗** → ワールドのチートがOFF／OP権限なし
+- **Claude側でツールが選択されない** → `mcp__minecraft-bedrock__*` ツールが Claude Desktop に登録されているか確認。Claude Desktop を完全終了→再起動
+- **特定のbuild系だけ失敗** → 範囲が大きすぎてサーバ側がタイムアウトしている可能性。サイズを小さくして試す
 
 ## 主なツール
 
