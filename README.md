@@ -102,12 +102,43 @@ powershell -ExecutionPolicy Bypass -File .\apply-config.ps1 -Apply
 
 ### 4. Minecraft 側で接続
 
-1. 動作確認用にシングルプレイのワールドを「チートON」で作成
+#### 4-a. ループバック分離の解除（初回のみ・**ほぼ全員必要**）
+
+Minecraft for Windows は UWP アプリで、既定では `localhost` への接続が OS によって遮断される（`/connect` がタイムアウト／無反応の主因）。**管理者として開いた**PowerShellで一度だけ：
+
+```powershell
+cd <PROJECT_DIR>
+powershell -ExecutionPolicy Bypass -File .\enable-connect.ps1
+```
+
+スクリプトは Retail Bedrock / Preview / Education の3種類のパッケージにループバック例外を一括登録する。手動コマンドは：
+
+```powershell
+CheckNetIsolation LoopbackExempt -a -n="Microsoft.MinecraftUWP_8wekyb3d8bbwe"
+```
+
+確認：
+
+```powershell
+CheckNetIsolation LoopbackExempt -s | Select-String "Minecraft"
+```
+
+#### 4-b. ワールド側の準備
+
+1. 動作確認用にシングルプレイのワールドを「**チート: ON**」で作成
 2. ワールドに入ったらチャットを開いて以下を実行：
    ```
    /connect localhost:8001/ws
    ```
 3. 「接続しました」と出れば成功
+
+#### 4-c. うまくいかない時のチェックリスト
+
+- MCPサーバ（Node.js）が起動しているか：Claude Desktop ログで `minecraft-bedrock` が緑になっているか確認
+- ポート 8001 が他プロセスで使われていないか：`netstat -ano | findstr :8001`
+- ループバック例外が入っているか：`enable-connect.ps1 -List` または上の `CheckNetIsolation` 確認コマンド
+- Minecraft の **Preview版** を使っている場合はパッケージ名が違う（`enable-connect.ps1` なら自動で網羅）
+- ワールド作成時にチートをONにし忘れていないか
 
 ### 5. Claude から操作
 
