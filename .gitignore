@@ -5,6 +5,9 @@ server/
 node_modules/
 *.log
 
+# MCPサーバ実行時のログ出力先
+logs/
+
 # OS
 .DS_Store
 Thumbs.db

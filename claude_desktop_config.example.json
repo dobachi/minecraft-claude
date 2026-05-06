@@ -1,9 +1,10 @@
 {
   "mcpServers": {
     "minecraft-bedrock": {
-      "command": "node",
+      "command": "cmd",
       "args": [
-        "<PROJECT_DIR>\\server\\dist\\server.js"
+        "/c",
+        "<PROJECT_DIR>\\run-server.cmd"
       ]
     }
   }

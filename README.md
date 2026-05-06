@@ -212,9 +212,26 @@ Minecraft内で動かなくても安全な、状態取得だけのテスト。
 | 「足元から北に50マス先までガラスで一直線の橋を作って」 | `build_line` | 直線状の橋ができる |
 | 「半径10、高さ20の円柱を石レンガで建てて」 | `build_cylinder` | 円柱が出現 |
 
-### Step 4. Agent系（任意・要 Education機能）
+### Step 4. Agent系（要：ワールド作成時に「Education」機能ON）
 
-`agent_*` 系は Education Edition の Agent（プログラミング教育用ロボット）の機能。Bedrock Retail版のシングルワールドでは Agent が出現しないので、このグループは**スキップしてOK**。Education機能を有効にしたワールドで「Agentを召喚して」「Agentを5マス前進させて」などを試す。
+`agent_*` 系は Agent（プログラミング教育用ロボット）の機能。**Bedrock Retail版でもワールド作成時に「Education」実験機能をONにすれば使える**（Education Edition本体は不要）。**ただし既存ワールドには後付けできない**ので、Agent を試したいなら新規ワールドを作る。
+
+ワールド作成時の設定：
+
+1. 新規ワールドを作成 → **ゲーム設定**
+2. 「**実験的なゲームプレイ (Experimental Gameplay)**」を有効化（または「**Education Edition**」トグル）
+3. チートも ON にしておく
+4. ワールド入場後、`/connect localhost:8001/ws` で接続
+5. Claude側で「Agentを足元に召喚して」「Agentを5マス前進させて」「Agentに足元のブロックを採掘させて」などを試す
+
+| プロンプト例 | 呼ばれるツール（目安） | 期待される確認ポイント |
+| --- | --- | --- |
+| 「Agentを足元に召喚して」 | `agent_*`（spawn系） | Agentがプレイヤー近くに出現 |
+| 「Agentを北に5マス前進させて」 | `agent_*`（move系） | Agentが移動 |
+| 「Agentに足元のブロックを掘らせて」 | `agent_*`（destroy系） | ブロックが撤去される |
+| 「Agentに石を1個設置させて」 | `agent_*`（place系） | ブロックが置かれる |
+
+> Agentコマンドは仕様上 WebSocket 側からのみ実行可能（プレイヤーがチャットで `/agent ...` を直接打つことはNPC経由でないとできない）。MCPサーバ経由でのこのプロジェクトの構成はその要件を満たす。
 
 ### 失敗時の切り分け
 
@@ -223,11 +240,117 @@ Minecraft内で動かなくても安全な、状態取得だけのテスト。
 - **Claude側でツールが選択されない** → `mcp__minecraft-bedrock__*` ツールが Claude Desktop に登録されているか確認。Claude Desktop を完全終了→再起動
 - **特定のbuild系だけ失敗** → 範囲が大きすぎてサーバ側がタイムアウトしている可能性。サイズを小さくして試す
 
+## Claude Desktop の Project に入れておくと便利な指示
+
+Claude Desktop には **Project** 機能があり、プロジェクト単位で「カスタム指示（custom instructions / system prompt）」を設定できる。Minecraft操作専用のプロジェクトを作ってこの指示を貼っておくと、毎回前置きを書かなくても期待通りの挙動になる。
+
+### Project の作り方
+
+1. Claude Desktop アプリ左メニュー **Projects → New project**
+2. 名前を例えば「Minecraft Bedrock 操作」にする
+3. プロジェクト画面の **Custom instructions** に下の指示を貼る
+4. 必要なら **Project knowledge** にこのリポの `README.md` をアップロード（ツール一覧やコマンド規則をClaudeが参照できるようになる）
+
+### カスタム指示のサンプル
+
+そのまま貼って使える日本語版：
+
+````markdown
+あなたはMinecraft Bedrock Editionをローカル接続経由で操作するアシスタントです。Mming-Lab の minecraft-bedrock-mcp-server（WebSocket経由）が接続済みである前提で動作してください。
+
+# 行動原則
+
+1. **状態確認を先にする**：建築や移動の前に、`player_*` 系で現在位置・体力・ディメンション・ゲームモードを取得してから計画を立てる。座標を仮定で進めない。
+2. **小さく作って広げる**：`build_cube` などのサイズは初回は5×5×5以内、確認できたら段階的に大きくする。一度に50×50×50を超えるリクエストはタイムアウトの可能性があるので、ユーザに分割を提案する。
+3. **足元を埋めない**：ユーザのキャラクター位置（X,Y,Z）に直接ブロックを置かない。窒息やめり込みを起こす。最低でもY+2以上、または周囲1ブロックずらす。
+4. **既存構造の上書きを警告**：`blocks_*` で対象範囲のブロックを下調べし、空気以外が含まれる場合は「既存ブロックを上書きするが進めてよいか」を確認する。
+5. **破壊的コマンドの確認**：プレイヤーキル、爆発、`/fill` の大範囲、天候・難易度の永続変更など、戻しにくい操作はユーザに一度確認する。
+6. **座標系の前提**：BedrockはYが上方向、Xが東(+)/西(-)、Zが南(+)/北(-)。「前」「後ろ」は向き依存なので、ユーザが「前」と言ったら一度向き（rotation）を取得するか、東西南北で確認を取る。
+7. **ブロック名はBedrock ID**：`minecraft:stone`、`minecraft:glass`、`minecraft:diamond_block` のような正式IDを使う。日本語の通称（「石」「ガラス」）はIDに変換してから呼び出す。
+8. **Agent系の前提確認**：`agent_*` 系のツールは、ワールドが「Education」実験機能ONで作成されている必要がある。最初に Agent 関連の依頼を受けたら、まず召喚を試して反応がなければ「このワールドは Education 機能がOFFの可能性がある。新規ワールド作成時にONにする必要がある」と説明する。
+9. **Wikiは積極活用**：レシピ・mob挙動・ブロック特性が必要な時は `minecraft_wiki` を先に引く。記憶に頼らない。
+
+# 応答スタイル
+
+- 各ツール呼び出しの前に「これから何をするか」を1〜2行で予告する
+- 実行後は「何が起きたか（座標・個数・結果）」を要約する
+- 失敗時は推測で繰り返さず、エラー内容を共有してユーザに次の判断を仰ぐ
+- 大規模な建築リクエストは、最初に**設計案（材質・サイズ・配置）と概算ブロック数**を提示してから着手する
+
+# 不明確な要求への対応
+
+- 「目の前」「あっち」など曖昧な方向指示は、現在の rotation を取得して東西南北で言い換える
+- 「派手にして」「いい感じに」など抽象的な要求は、2〜3案（モダン/古城/有機的 など）を提示して選んでもらう
+````
+
+### 軽量版（短い方が良ければ）
+
+````markdown
+あなたはMinecraft Bedrockをminecraft-bedrock-mcp-server経由で操作するアシスタント。
+
+- 建築前に必ず `player_*` で現在位置と向きを取得する
+- 初回は5×5×5以内で試し、問題なければ拡大する
+- ユーザの足元には絶対にブロックを置かない（Y+2以上）
+- ブロックは `minecraft:stone` 形式のBedrock IDで指定する
+- 戻しにくい操作（広範囲fill、天候永続変更、kill）は事前確認する
+- Agent系を依頼されたら最初に召喚を試し、無反応なら「ワールド作成時に Education 機能 ON が必要」と説明する
+- 不明な仕様は記憶ではなく `minecraft_wiki` を引く
+````
+
+### Project knowledge に入れると効くもの
+
+- このリポの `README.md`（ツール一覧・接続前提）
+- 自分のワールド固有の情報（建築ルール、座標メモ、テクスチャパック制約 など）を別ファイルに書いて追加
+
+## ログを見る
+
+MCPサーバの動作確認・遅延要因の特定には、サーバが出す stderr ログを残しておくのが有効。`claude_desktop_config.example.json` は **`run-server.cmd` 経由で node を起動**するように構成されており、stderr が `logs/server.log` に追記される（stdout は MCPプロトコルが使うので触らない）。
+
+### ログの場所
+
+```
+<PROJECT_DIR>\logs\server.log
+```
+
+セッション境界には `=== YYYY/MM/DD HH:MM:SS server start (pid=...) ===` のヘッダが入る。
+
+### リアルタイムで眺める
+
+PowerShell で別ウィンドウを開いて：
+
+```powershell
+cd <PROJECT_DIR>
+Get-Content -Wait -Tail 50 .\logs\server.log
+```
+
+`-Wait` で `tail -f` 相当。Minecraftで `/connect` した瞬間や、Claudeから建築コマンドを叩いた時にどんなWebSocketメッセージが流れているかが見える。
+
+### ログをリセット／圧縮
+
+ログは追記なので長くなりがち。気になったら手動でリネーム：
+
+```powershell
+Move-Item .\logs\server.log .\logs\server-$(Get-Date -Format 'yyyyMMdd-HHmmss').log
+```
+
+> Claude Desktop が MCPサーバを使用中はファイルがロックされる可能性あり。一度 Claude Desktop を完全終了してから操作するのが安全。
+
+### よくある手がかり
+
+| ログに出る内容（例） | 意味 |
+| --- | --- |
+| `WebSocket client connected` | Minecraft 側の `/connect` が成功 |
+| `WebSocket client disconnected` | Minecraft が落ちた／ワールドを離れた |
+| `executing command: /fill ...` | `build_*` 系が一括 fill コマンドに展開された |
+| `executing command: /setblock ...` がループ | 単発 setblock の繰り返し → 体感が遅い原因 |
+| `Connection refused` | ポート8001がふさがっている／別プロセスが先に起動済み |
+| `EADDRINUSE` | 同上 |
+
 ## 主なツール
 
 MCPサーバが提供する主な機能：
 
-- `agent_*` … Agent（ロボット）の移動・採掘・設置
+- `agent_*` … Agent（ロボット）の召喚・移動・採掘・設置（ワールドで Education 機能を有効にした場合に利用可）
 - `player_*` … プレイヤー位置・体力・インベントリ取得
 - `world_*` … 天気・時間・難易度
 - `blocks_*` … ブロック取得・設置
