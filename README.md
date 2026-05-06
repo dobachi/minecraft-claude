@@ -25,7 +25,7 @@ Windows + Minecraft Bedrock Edition を Claude Desktop から操作するため�
 > | **Claude Desktop アプリの通常チャット** | ✅ 使える（このプロジェクトのターゲット） |
 > | Claude Desktop の **Cowork モード**（ファイル作業・自動化用の別モード） | ❌ 使えない（別のツールセット） |
 > | claude.ai（ブラウザ版） | ❌ 使えない（ローカルMCP非対応） |
-> | Claude Code（CLIツール） | △ 別途設定すれば使える |
+> | Claude Code（CLIツール） | ✅ 使える（`install-claude-code.ps1` + 同梱の `.mcp.json` で構成済み。後述「Claude Code から使う」参照） |
 >
 > 「いまどこにいる？」と聞くなら、**Claude Desktop のアプリを開いて、左上「+」で新規チャットを開始してそこで質問する**こと。Cowork のような別モードでは Minecraft の状態は見えない。
 
@@ -240,6 +240,109 @@ Minecraft内で動かなくても安全な、状態取得だけのテスト。
 - **Claude側でツールが選択されない** → `mcp__minecraft-bedrock__*` ツールが Claude Desktop に登録されているか確認。Claude Desktop を完全終了→再起動
 - **特定のbuild系だけ失敗** → 範囲が大きすぎてサーバ側がタイムアウトしている可能性。サイズを小さくして試す
 
+## Claude Code から使う
+
+Claude Desktop の代わりに、ターミナル（PowerShell）から `claude` コマンドで操作することもできる。同じ MCP サーバを Claude Desktop と Claude Code で使い回せるので、慣れたツールで作業できる。
+
+### 仕組み
+
+```
+[PowerShell の claude CLI] ──MCP(stdio)──▶ [Node.js MCPサーバ(run-server.cmd)] ──WebSocket──▶ [Minecraft Bedrock]
+```
+
+Claude Desktop 版と同じ構成。違いは MCP サーバを spawn する親プロセスが Claude Desktop ではなく `claude` CLI になる点だけ。
+
+### セットアップ
+
+1. **Claude Code 本体のインストール（初回のみ）**
+
+   ```powershell
+   cd <PROJECT_DIR>
+   powershell -ExecutionPolicy Bypass -File .\install-claude-code.ps1
+   ```
+
+   `npm install -g @anthropic-ai/claude-code` を裏で実行してバージョン確認まで行う。Node.js 18+ が必要（`setup.ps1` の前提と同じ）。完了後は **新しい PowerShell ウィンドウ** で `claude --version` が通る。
+
+   > **`claude` 実行時に「スクリプトの実行が無効」エラーが出たら**：npm が `claude.ps1` ラッパを `%APPDATA%\npm\` に置くが、Windows PowerShell の既定 ExecutionPolicy (`Restricted`) では `.ps1` が一切実行できないため弾かれる。一度だけ次を実行してポリシーを `RemoteSigned` に緩める（CurrentUser スコープなので**管理者権限不要**）：
+   >
+   > ```powershell
+   > Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+   > ```
+   >
+   > ローカル作成スクリプトは無署名で実行可、ネット由来は署名必須、というバランス設定。これを変えたくない場合は `claude.cmd --version` のように `.cmd` ラッパを直接呼べば回避できる（`.cmd` は ExecutionPolicy の対象外）。
+
+2. **プロジェクトスコープの MCP 設定（同梱済み）**
+
+   このリポには `.mcp.json` が同梱されており、`claude_desktop_config.resolved.json` と同じ `minecraft-bedrock` サーバ定義が入っている。Claude Code は起動時のカレントディレクトリ直下の `.mcp.json` を自動で読む。
+
+   ```json
+   {
+     "mcpServers": {
+       "minecraft-bedrock": {
+         "command": "cmd",
+         "args": ["/c", "J:\\minecraft\\minecraft-claude\\minecraft\\run-server.cmd"]
+       }
+     }
+   }
+   ```
+
+   別環境では絶対パスを書き換える。`.gitignore` で除外しているので、`apply-config.ps1` 相当を作るか、各自で書き換える運用。
+
+3. **CLAUDE.md（同梱済み）**
+
+   プロジェクトルートの `CLAUDE.md` には Claude Desktop の Project カスタム指示と同じ Minecraft 行動原則が入っている。Claude Code は起動時にこれを自動で読む。Claude Desktop の Project 機能と等価の効果が得られる。
+
+4. **起動と接続順序**
+
+   起動順序を **Claude Code 先 → Minecraft `/connect` 後** にすること。Claude Code が `claude` 起動時に MCP サーバ（`run-server.cmd`）を spawn してポート 8001 を listen するため、それより先に Minecraft 側で `/connect` してもサーバが居なくて失敗する。
+
+   ```powershell
+   cd <PROJECT_DIR>
+   claude
+   ```
+
+   起動後の流れ：
+
+   1. 初回認証（Anthropic アカウントのブラウザログイン or API キー）
+   2. `.mcp.json` の `minecraft-bedrock` サーバ承認プロンプト → **Yes / Always** を選ぶ
+   3. CLAUDE.md が自動で読まれて行動原則が効く
+   4. Minecraft 側でワールドに入り、チャットで `/connect localhost:8001/ws`
+   5. Claude Code 側で「いまどこにいる？座標を教えて」など `player_*` 系の読み取り操作で疎通確認
+
+   再起動するときも同じ順序を守る。Minecraft をワールドから抜けると WebSocket が切れるので、戻ったら `/connect` をやり直す。
+
+### Claude Desktop と同居する場合の重要な注意
+
+MCP サーバはポート 8001 で WebSocket をバインドする。**Claude Desktop と Claude Code が両方同時に起動すると、後発側が `EADDRINUSE` で起動失敗する**。
+
+| 状況 | どうなるか |
+| --- | --- |
+| Claude Desktop だけ起動 | OK（既存のフロー） |
+| Claude Code だけ起動 | OK |
+| 両方同時に起動 | ❌ 後発が落ちる、または既存接続が切れる |
+
+回避策はどちらかを完全終了してからもう一方を起動すること。タスクトレイに残っている Claude Desktop は **完全終了**（タスクトレイ右クリック → Quit）するまで MCP サーバを掴んでいる点に注意。
+
+恒久的に両方同居させたい場合はサーバ側のポートを env で切り替え可能にする改造が必要（`server\src` のポート決定箇所を `process.env.MCP_PORT ?? 8001` 化し、`run-server.cmd` で `set MCP_PORT=8002` するなど）。
+
+### Claude Code で詰まりやすいポイント
+
+| 症状 | 原因 | 対処 |
+| --- | --- | --- |
+| `claude` 実行時に「スクリプトの実行が無効」 | PowerShell の ExecutionPolicy が `Restricted` で `claude.ps1` が弾かれる | `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`（管理者不要）。または `claude.cmd` を直接呼ぶ |
+| `claude` 起動時に MCP サーバが緑にならない | `run-server.cmd` のパスが環境と合っていない／Node.js の build が完了していない | `.mcp.json` の絶対パスを確認、`setup.ps1` 完了済みか確認 |
+| Minecraft で `/connect` しても無応答 | `claude` を起動する前に `/connect` した、またはループバック例外未設定 | まず `claude` を起動してから Minecraft で `/connect`。初回はループバック例外（`enable-connect.ps1`）も必要 |
+| Claude Code 起動直後に `EADDRINUSE` | Claude Desktop が裏で生きていてポート 8001 を掴んでいる | Claude Desktop をタスクトレイから完全終了 |
+| `install-claude-code.ps1` 等のリポ内 `.ps1` を編集したら「文字列に終端記号 `"` がありません」 | PowerShell 5.x は BOMなし UTF-8 を Shift-JIS と誤認して日本語コメントが文字化けする | エディタで「UTF-8 with BOM」で保存し直す（VS Code なら右下の `UTF-8` → `Save with Encoding`） |
+
+### Claude Code で得をする場面
+
+- ターミナルとエディタの隣で動かしたい（チャットウィンドウを切り替えなくていい）
+- ファイル操作と Minecraft 操作を同じセッションでやりたい（建築ログを `.md` に書きながら建築するなど）
+- スクリプト化したい（`claude -p "天気を晴れにして" --print` のような非対話実行）
+
+逆に Claude Desktop が向いているのは: 雑談を挟みながらゆっくり進める、複数の Project を切り替える、画像を貼って指示する、など。
+
 ## Claude Desktop の Project に入れておくと便利な指示
 
 Claude Desktop には **Project** 機能があり、プロジェクト単位で「カスタム指示（custom instructions / system prompt）」を設定できる。Minecraft操作専用のプロジェクトを作ってこの指示を貼っておくと、毎回前置きを書かなくても期待通りの挙動になる。
@@ -309,6 +412,16 @@ Claude Desktop には **Project** 機能があり、プロジェクト単位で�
 
 - このリポの `README.md`（ツール一覧・接続前提）
 - 自分のワールド固有の情報（建築ルール、座標メモ、テクスチャパック制約 など）を別ファイルに書いて追加
+
+## `scripts/` フォルダ
+
+`scripts/` は **ユーザが自由にスクリプトを置ける作業スペース**。リポジトリには空のまま含めてある（`.gitkeep` で維持）。用途は限定していないので、例えば次のような使い方を想定している：
+
+- 自作の建築用 PowerShell / Node スクリプト
+- 定型コマンドを束ねたバッチ（`/connect` 後に決まった天候・時刻にする手順など）
+- Claude に「`scripts/build-castle.ps1` を実行して」のように呼ばせる固定置き場
+
+中身の管理（コミットするか、`.gitignore` に追加するか）は各自の運用に任せる。**個人用のコミットしたくないスクリプトは `scripts/private/` 以下に置けば自動で gitignore される**（`.gitignore` に `scripts/private/` を登録済み）。
 
 ## ログを見る
 

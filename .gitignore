@@ -26,6 +26,15 @@ Thumbs.db
 claude_desktop_config.json
 claude_desktop_config.resolved.json
 
+# Claude Code のプロジェクトスコープ MCP 設定（個人の絶対パスを含む）
+.mcp.json
+
+# Claude Code のローカルセッション・権限キャッシュ（個人環境固有）
+.claude/
+
+# ユーザ個人の作業用スクリプト（scripts/ 配下の private サブディレクトリ）
+scripts/private/
+
 # 認証・秘密情報
 .env
 .env.*
