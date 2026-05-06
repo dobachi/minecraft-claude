@@ -74,7 +74,31 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 ### 3. Claude Desktop の設定ファイルを編集
 
-`%APPDATA%\Claude\claude_desktop_config.json` を開いて、`claude_desktop_config.example.json` の内容を `mcpServers` にマージする。**`<PROJECT_DIR>` の部分は自分のフルパスに置き換える**こと（JSONなのでバックスラッシュは `\\` とエスケープ）。Claude Desktop を **完全終了 → 再起動**（タスクトレイ常駐も終了させる）。
+`apply-config.ps1` が `<PROJECT_DIR>` を実フォルダパスに置換し、JSON構文を検証して、`claude_desktop_config.resolved.json` の生成 + クリップボードコピーまで一気にやる。
+
+```powershell
+# このリポのルートで実行
+powershell -ExecutionPolicy Bypass -File .\apply-config.ps1
+```
+
+実行後は2通りの貼り付け方：
+
+- **A. クリップボードから貼付（推奨）**：`notepad "$env:APPDATA\Claude\claude_desktop_config.json"` を開いてCtrl+V。既に他のMCPが入っている場合は `mcpServers` 内の `"minecraft-bedrock": {...}` 部分だけマージ
+- **B. 既存設定が無い／上書きで構わない**：`-Apply` を付けて実行すると `%APPDATA%\Claude\claude_desktop_config.json` を直接上書き（既存があれば `.bak` にバックアップしてから）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\apply-config.ps1 -Apply
+```
+
+> **既存MCPがいる場合は `-Apply` を使わないこと。** 既存エントリは保持されない。
+
+設定編集後は Claude Desktop を **完全終了 → 再起動**（タスクトレイ常駐も終了させる）。
+
+> **JSONエラーが出た時のチェック：** `\U`, `\p` のように **`\` の後ろが `"` `\` `/` `b` `f` `n` `r` `t` `u` 以外** になっていないか確認。Windowsパスは必ず `C:\\Users\\...` のように `\\` で書く。`apply-config.ps1` は `ConvertFrom-Json` で事前検証する。
+
+> **PowerShell 5.x のUTF-8注意点：** `Get-Content` は既定で Shift-JIS で読み、`Set-Content -Encoding UTF8` は BOM付きで書く。両方とも文字化けやJSONパース失敗の原因になる。`apply-config.ps1` は `Get-Content -Encoding UTF8` と `[System.IO.File]::WriteAllText(..., UTF8NoBom)` で対処済み。
+
+> `claude_desktop_config.resolved.json` は個人の絶対パスを含むため `.gitignore` で除外している。
 
 ### 4. Minecraft 側で接続
 

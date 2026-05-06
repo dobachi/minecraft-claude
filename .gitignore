@@ -21,6 +21,7 @@ Thumbs.db
 
 # 個人の Claude Desktop 設定（ユーザー固有のパスやAPIキーが入りうる）
 claude_desktop_config.json
+claude_desktop_config.resolved.json
 
 # 認証・秘密情報
 .env

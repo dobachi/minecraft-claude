@@ -1,5 +1,4 @@
 {
-  "_comment": "<PROJECT_DIR> はこのリポをcloneしたフォルダのフルパスに置き換える。Windowsはバックスラッシュを '\\\\' とエスケープすること。例: C:\\\\Users\\\\you\\\\projects\\\\minecraft-claude",
   "mcpServers": {
     "minecraft-bedrock": {
       "command": "node",
