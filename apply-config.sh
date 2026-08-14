@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
-# Generate the Claude Code project-scope MCP config (.mcp.json) for this directory.
+# Generate the Claude Code project-scope MCP config (.mcp.json).
 #
-# Claude Code reads .mcp.json from the directory it is started in. This script
-# writes one pointing at ./run-server.sh with an absolute path, so it works
-# regardless of where you clone the repo.
-#
-# .mcp.json is gitignored (it contains a machine-specific absolute path), which
-# is why it is generated rather than committed.
+# Claude Code reads .mcp.json from the directory it is started in, so this file
+# belongs wherever you intend to run `claude` — which is not necessarily this
+# repository. The MCP server is referenced by absolute path, so the config works
+# from any directory.
 #
 # Usage:
-#   ./apply-config.sh              # port 8001 (default)
-#   ./apply-config.sh --port 8002  # when 8001 is taken (e.g. Claude Desktop is running)
+#   ./apply-config.sh                          # write .mcp.json here
+#   ./apply-config.sh --output-dir ~/work      # write it where you start claude
+#   ./apply-config.sh --port 8002              # when 8001 is taken
 #
-# Linux counterpart of apply-config.ps1. Note that it does NOT touch any Claude
-# Desktop config: Claude Desktop is a Windows application and cannot spawn a
-# process inside WSL2.
+# Writing it somewhere else is the norm when this repo lives inside a larger
+# workspace: putting .mcp.json at the workspace root lets one Claude Code session
+# reach both the Minecraft tools and every sibling project, instead of confining
+# the session to this one directory.
+#
+# .mcp.json is gitignored here because it contains a machine-specific absolute
+# path. If you point --output-dir at another repository, make sure that repo
+# ignores .mcp.json too — this script warns when it does not.
+#
+# Linux counterpart of apply-config.ps1. It does NOT touch any Claude Desktop
+# config: Claude Desktop is a Windows application and cannot spawn a process
+# inside WSL2.
 
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT_FILE="$PROJECT_DIR/.mcp.json"
 RUN_SERVER="$PROJECT_DIR/run-server.sh"
+OUT_DIR="$PROJECT_DIR"
 PORT=8001
 
 info() { printf '\033[36m%s\033[0m\n' "$*"; }
@@ -32,7 +40,9 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --port) PORT="${2:-}"; shift 2 ;;
         --port=*) PORT="${1#*=}"; shift ;;
-        -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        --output-dir) OUT_DIR="${2:-}"; shift 2 ;;
+        --output-dir=*) OUT_DIR="${1#*=}"; shift ;;
+        -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *) die "Unknown option: $1" ;;
     esac
 done
@@ -42,11 +52,23 @@ case "$PORT" in
 esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "Port out of range: $PORT"
 
+[ -d "$OUT_DIR" ] || die "Output directory does not exist: $OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+OUT_FILE="$OUT_DIR/.mcp.json"
+
 [ -f "$RUN_SERVER" ] || die "$RUN_SERVER not found."
 [ -x "$RUN_SERVER" ] || warn "$RUN_SERVER is not executable. Run: chmod +x run-server.sh"
 
 if [ ! -f "$PROJECT_DIR/server/dist/server.js" ]; then
     warn "server/dist/server.js not found — run ./setup.sh before starting Claude Code."
+fi
+
+# A .mcp.json holds an absolute path from this machine, so it should not be committed.
+if [ "$OUT_DIR" != "$PROJECT_DIR" ] && git -C "$OUT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    if ! git -C "$OUT_DIR" check-ignore -q .mcp.json 2>/dev/null; then
+        warn "$OUT_DIR is a git repository that does not ignore .mcp.json."
+        warn "Add '.mcp.json' to its .gitignore to keep this machine's paths out of version control."
+    fi
 fi
 
 if [ -f "$OUT_FILE" ]; then
@@ -71,7 +93,8 @@ echo
 cat "$OUT_FILE"
 echo
 info "Next:"
-echo "  1. Start Claude Code from this directory:  cd \"$PROJECT_DIR\" && claude"
+echo "  1. Start Claude Code from the directory holding that file:"
+echo "       cd \"$OUT_DIR\" && claude"
 echo "  2. Approve the 'minecraft-bedrock' MCP server prompt (Yes / Always)"
 echo "  3. In Minecraft (Windows side), enter a world with cheats ON and run:"
 echo "       /connect $(bash "$PROJECT_DIR/scripts/wsl-ip.sh" 2>/dev/null || echo '<WSL2-IP>'):$PORT/ws"
@@ -81,4 +104,6 @@ echo "a WSL2 listener that way. Re-read the address with ./scripts/wsl-ip.sh aft
 echo "WSL restart, since it is a NAT address that changes."
 echo
 echo "Claude Code must be running before you type /connect — it is what starts"
-echo "the MCP server that listens on port $PORT."
+echo "the MCP server that listens on port $PORT. Only one process can hold the"
+echo "port, so do not leave a second Claude Code session or a manual run-server.sh"
+echo "running elsewhere."
