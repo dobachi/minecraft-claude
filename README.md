@@ -39,6 +39,8 @@ Windows + Minecraft Bedrock Edition を Claude Desktop から操作するため�
 
 公開サーバ（Realms含む）では `/connect` がほぼ確実に拒否されます。試したい場合はまず **シングルプレイのワールドで動作確認** → **友人にサーバ設定を相談** の順で進めるのが安全です。
 
+> **実績**: チートが有効な友人のサーバ（他プレイヤーが同時接続中）で `/connect` の成功を確認済み。ただし**マルチプレイでは未対策の socket-be が接続直後にクラッシュする**ため、「[socket-be のクラッシュ対策](#socket-be-のクラッシュ対策)」を適用した状態で使ってください。未対策だと「繋がったように見えて実は MCP サーバのプロセスが死んでいる」という紛らわしい状態になります。
+
 「別アカウントで友人のサーバに同時参加するBot」が欲しい場合は別方式（`bedrock-protocol` ライブラリで自前Bot構築、Microsoftアカウント認証必要、サーバ規約に注意）になるので、その方向に切り替えたいときは知らせてください。
 
 ## 必要なもの
@@ -323,7 +325,7 @@ MCP サーバはポート 8001 で WebSocket をバインドする。**Claude De
 
 回避策はどちらかを完全終了してからもう一方を起動すること。タスクトレイに残っている Claude Desktop は **完全終了**（タスクトレイ右クリック → Quit）するまで MCP サーバを掴んでいる点に注意。
 
-恒久的に両方同居させたい場合はサーバ側のポートを env で切り替え可能にする改造が必要（`server\src` のポート決定箇所を `process.env.MCP_PORT ?? 8001` 化し、`run-server.cmd` で `set MCP_PORT=8002` するなど）。
+恒久的に両方同居させたい場合は、片方のポートを変えればよい。**サーバの改造は不要** — `server/src/server.ts` は最初から `--port=8002` 形式のコマンドライン引数を受け付ける（`--lang=ja` も同様）。Linux 側なら `./apply-config.sh --port 8002`、Windows 側なら `.mcp.json` / `claude_desktop_config.json` の `args` に `--port=8002` を足す。
 
 ### Claude Code で詰まりやすいポイント
 
@@ -342,6 +344,132 @@ MCP サーバはポート 8001 で WebSocket をバインドする。**Claude De
 - スクリプト化したい（`claude -p "天気を晴れにして" --print` のような非対話実行）
 
 逆に Claude Desktop が向いているのは: 雑談を挟みながらゆっくり進める、複数の Project を切り替える、画像を貼って指示する、など。
+
+## WSL2 / Linux から使う
+
+Windows 側の Minecraft はそのままに、**MCP サーバだけを WSL2（Linux）で動かす**構成。Claude Code を WSL2 のターミナルから使いたい場合はこちら。
+
+### 仕組み
+
+```
+[WSL2 の claude CLI] ──MCP(stdio)──▶ [Node.js MCPサーバ (run-server.sh)] ──WebSocket──▶ [Windows の Minecraft]
+```
+
+Windows 版との違いは MCP サーバの居場所だけ。Minecraft は Windows 側のまま動く。
+
+### セットアップ
+
+```bash
+./setup.sh          # clone + npm install + socket-be のピン留め + パッチ + build
+./apply-config.sh   # .mcp.json を生成
+claude              # 起動してから Minecraft 側で /connect
+```
+
+`.ps1` 版と1対1で対応する：
+
+| Windows | WSL2 / Linux |
+| --- | --- |
+| `setup.ps1` | `setup.sh` |
+| `run-server.cmd` | `run-server.sh` |
+| `apply-config.ps1` | `apply-config.sh` |
+| （なし） | `scripts/wsl-ip.sh` — 接続先アドレスの取得 |
+| （なし） | `scripts/patch-socket-be.js` — 後述のクラッシュ対策 |
+
+`enable-connect.ps1`（ループバック例外）は Windows 側の設定なので、WSL2 構成でも**そのまま Windows 側で一度実行しておく**。
+
+### localhost では繋がらない（重要）
+
+Minecraft は Windows 側の UWP アプリなので、**`/connect localhost:8001/ws` は WSL2 のサーバに届かない**。ループバック例外を入れても同じ。WSL2 の NAT アドレスを直接指定する。
+
+```bash
+./scripts/wsl-ip.sh     # 例: 172.29.198.82
+```
+
+```
+/connect 172.29.198.82:8001/ws
+```
+
+このアドレスは **WSL を再起動するたびに変わる**ので、固定で覚えず毎回 `wsl-ip.sh` で取得する。`setup.sh` と `apply-config.sh` は完了時に現在のアドレス入りのコマンドを表示する。
+
+実測環境: Windows 11 build 26200 / WSL 2.4.13 / カーネル 5.15.167.4、`.wslconfig` なし（NAT モード）。**ミラーモード（`networkingMode=mirrored`）への変更は不要**だった。
+
+### 複数プロジェクトのワークスペースで使う
+
+Claude Code は**起動ディレクトリの `.mcp.json` しか読まない**。このリポジトリを大きなワークスペースの一部（例: `projects/` 配下）として使っている場合、ここで `claude` を起動すると他のプロジェクトが見えないセッションになる。設定をワークスペースのルートに置けばよい。
+
+```bash
+./apply-config.sh --output-dir /path/to/workspace
+cd /path/to/workspace && claude
+```
+
+MCP サーバは絶対パスで参照されるので、`.mcp.json` はどこに置いても動く。ただしその絶対パスはマシン固有なので、置き先のリポジトリでは `.gitignore` に `.mcp.json` を加えること（ignore されていなければ `apply-config.sh` が警告する）。
+
+なお `CLAUDE.md`（この後の「Project に入れておくと便利な指示」と同内容）も**起動ディレクトリのものしか読まれない**。ルートで起動する構成にした場合は、ルートの `CLAUDE.md` から「Minecraft ツールを使う前に `<このリポ>/CLAUDE.md` を読むこと」と参照させないと、行動原則が効かないまま操作することになる。
+
+### socket-be のクラッシュ対策
+
+`setup.sh` は上流の lockfile を上書きして **socket-be 2.6.0 以上**を入れ、さらに `scripts/patch-socket-be.js` でパッチを当てる。理由は 2 つある。
+
+**1. マルチプレイで接続直後に落ちる（2.3.1）**
+
+上流の lockfile が固定している 2.3.1 は、`World.getPlayerDetail()` が `listd stats` の応答を**コマンドの成否を確認する前に**パースする。マルチプレイサーバではこのコマンドが失敗するため `res.details` が undefined になり、`.match()` で TypeError。上流もこの危険を認識していて、**2.6.0 では `getPlayerDetail` / `Player.load` / `getDetails` を「マルチプレイでワールドをクラッシュさせうる」として意図的に無効化**している。
+
+**2. 切断時にプロセスごと死ぬ（2.6.0 でも未修正）**
+
+`Network.onConnectionClose()` が、World 登録の済んでいない接続に対して `world.onDisconnect()` を nil チェックなしで呼ぶ。`ws` の close イベントから投げられるので誰も catch できず、**MCP サーバのプロセス全体が落ちる**（＝ Claude Code の MCP 接続も切れる）。`scripts/patch-socket-be.js` がこれをガードする。冪等なので何度実行してもよく、上流が修正してコードの形が変われば `MISS` で失敗して知らせる。
+
+**副作用**: 上記の無効化により、プレイヤーの `uuid` / `deviceId` は空、`isLoaded` は常に false になる。`world get_players` の `isLocal` も当てにならない（全員 false になる）。ローカルプレイヤーの判定には `player get_info` の `isLocalPlayer` を使うこと。
+
+### 繋がらないときの切り分け
+
+`/connect` が無反応・失敗するとき、原因を「サーバ側の禁止」と「こちら側の設定」に分ける。**上から順に進めると、疑わしい範囲が段階的に狭まる。**
+
+**1. MCP サーバは動いているか**
+
+```bash
+ss -tln | grep 8001
+```
+
+`*:8001` と出れば全インターフェースで待ち受けている。何も出なければ Claude Code が起動していないか、MCP サーバが落ちている。
+
+**2. Windows から WSL2 に TCP が通るか**
+
+```bash
+powershell.exe -NoProfile -Command "(Test-NetConnection -ComputerName $(./scripts/wsl-ip.sh) -Port 8001).TcpTestSucceeded"
+```
+
+`True` なら経路は生きている。ここで失敗するならアドレス違いかファイアウォール。
+
+**3. シングルプレイで繋がるか**
+
+チート ON のシングルプレイワールドで `/connect` を試す。ここで成功して友人サーバで失敗するなら、**原因はサーバ側**（`/connect` の禁止、チート無効、OP 権限なし）と確定し、こちら側の設定は白。この対照実験を先にやらないと、以降の調査が無駄になる。
+
+**4. エラーメッセージで切り分ける**
+
+| 表示 | 原因 |
+| --- | --- |
+| 「Websocketサーバーへの要求が拒否されました」 | 暗号化WebSocket要求が ON（→ 4-b） |
+| 無反応・タイムアウト | アドレスが `localhost` になっている／サーバが起動していない |
+| 「構文エラー」 | そのワールドでコマンドが無効（チート OFF） |
+| 繋がった直後に切れる | socket-be のクラッシュ（→ `logs/server.log` を確認） |
+
+**5. サーバ側のログを見る**
+
+```bash
+tail -f logs/server.log
+```
+
+接続後にスタックトレースが出て止まっていれば MCP サーバのクラッシュ。プロセスの生死は `ss -tln | grep 8001` で分かる（LISTEN が消えていれば死んでいる）。
+
+> **Minecraft の画面表示は接続状態の証拠にならない。** WebSocket が切れても Minecraft は明示的に知らせないことがある。ワールド内に Agent が見えていても接続とは無関係（Agent は Education 機能のエンティティで、MCP 接続とは独立して存在する）。必ずサーバ側で確認すること。
+
+### ポートを掴めるのは1プロセスだけ
+
+Claude Code は起動時に MCP サーバを spawn する。そのため**検証目的で `run-server.sh` を手動起動したまま `claude` を起動すると、後発が `EADDRINUSE` で失敗する**。手動起動したら必ず止めること。
+
+```bash
+pgrep -af "server/dist/server.js"    # 動いているものを確認
+```
 
 ## Claude Desktop の Project に入れておくと便利な指示
 
