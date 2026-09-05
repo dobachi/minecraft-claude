@@ -1,7 +1,9 @@
 # Claude × Minecraft Bedrock 連携セットアップ
 
 Windows + Minecraft Bedrock Edition を Claude Desktop から操作するための環境構築ガイド。
-[Mming-Lab/minecraft-bedrock-mcp-server](https://github.com/Mming-Lab/minecraft-bedrock-mcp-server) を利用する。
+[Mming-Lab/minecraft-bedrock-education-mcp](https://github.com/Mming-Lab/minecraft-bedrock-education-mcp) を利用する。
+
+ただし直接は使わず、[dobachi/minecraft-bedrock-education-mcp](https://github.com/dobachi/minecraft-bedrock-education-mcp) の `legacy-chat-receive` ブランチを **git submodule** として `server/` に固定している。理由は「[なぜ上流を直接使わないのか](#なぜ上流を直接使わないのか)」を参照。
 
 > **本READMEの表記について**
 > このREADMEとサンプルファイルでは、各自が clone / 配置するフォルダのフルパスを **`<PROJECT_DIR>`** と表記しています。実行時はあなたの環境のパス（例：`C:\Users\<USER>\projects\minecraft-claude` や `D:\workspace\minecraft-claude` など、自由）に読み替えてください。
@@ -80,7 +82,7 @@ cd <PROJECT_DIR>     # 例: cd C:\Users\<USER>\projects\minecraft-claude
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
-`server/` 配下にMCPサーバが clone & build される。
+`server/` の submodule が checkout され、build される。
 
 > `ExecutionPolicy` でブロックされるのを回避するため必ず `-ExecutionPolicy Bypass` を付けて起動する。恒久的に許可したい場合は管理者PowerShellで一度だけ：
 > ```powershell
@@ -360,7 +362,7 @@ Windows 版との違いは MCP サーバの居場所だけ。Minecraft は Windo
 ### セットアップ
 
 ```bash
-./setup.sh          # clone + npm install + socket-be のピン留め + パッチ + build
+./setup.sh          # submodule 同期 + npm install + パッチ + build
 ./apply-config.sh   # .mcp.json を生成
 claude              # 起動してから Minecraft 側で /connect
 ```
@@ -406,9 +408,25 @@ MCP サーバは絶対パスで参照されるので、`.mcp.json` はどこに�
 
 なお `CLAUDE.md`（この後の「Project に入れておくと便利な指示」と同内容）も**起動ディレクトリのものしか読まれない**。ルートで起動する構成にした場合は、ルートの `CLAUDE.md` から「Minecraft ツールを使う前に `<このリポ>/CLAUDE.md` を読むこと」と参照させないと、行動原則が効かないまま操作することになる。
 
+### なぜ上流を直接使わないのか
+
+`server/` は上流そのものではなく、[dobachi/minecraft-bedrock-education-mcp](https://github.com/dobachi/minecraft-bedrock-education-mcp) の `legacy-chat-receive` ブランチを submodule として**コミット単位で固定**している。
+
+理由は 2 つある。
+
+**1. 上流が 2026-08 に全面書き換えされた**
+
+アドオン経由のブリッジ方式に作り替えられ（ポート 19131、チャット行を転送路として使用）、このドキュメントが前提にしているツール群（`build_cube` / `agent` / `world` など）は**残っていない**。上流の最新に追従すると環境ごと別物になる。移行するかどうかは、必要になった時点で改めて判断する。
+
+**2. ゲーム内チャットの受信を足してある**
+
+上流（書き換え前）はチャットの送信しかできず、プレイヤーの発言は MCP クライアントに届かない。フォーク側で `PlayerChat` / `PlayerMessage` を購読して上限付きバッファに溜め、`world get_chat` として取り出せるようにしている。
+
+ブランチ先端ではなく submodule で SHA を固定しているのは、知らないうちに中身が変わるのを防ぐため。版を上げるときは `server/` で目的のコミットに切り替え、親リポジトリで `git add server` してコミットする。
+
 ### socket-be のクラッシュ対策
 
-`setup.sh` は上流の lockfile を上書きして **socket-be 2.6.0 以上**を入れ、さらに `scripts/patch-socket-be.js` でパッチを当てる。理由は 2 つある。
+**socket-be 2.6.0 以上**という下限は submodule 側の `package.json` に入れてある。加えて `setup.sh` が `scripts/patch-socket-be.js` でパッチを当てる。理由は 2 つある。
 
 **1. マルチプレイで接続直後に落ちる（2.3.1）**
 
@@ -710,7 +728,7 @@ powershell -ExecutionPolicy Bypass -File .\github-push.ps1
 4. GitHub に `<自分のアカウント>/<REPO_NAME>` を作成（既にあればスキップ）
 5. `origin` に push
 
-`server/`（clone した Mming-Lab 本体）と `claude_desktop_config.json`（個人パス入り）は `.gitignore` で除外している。
+`claude_desktop_config.json`（個人パス入り）は `.gitignore` で除外している。`server/` は submodule として追跡しているので、clone するときは `--recurse-submodules` を付けるか、後から `git submodule update --init` を実行する。
 
 ### 2回目以降の更新
 

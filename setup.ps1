@@ -5,7 +5,14 @@ $ErrorActionPreference = "Stop"
 
 $ROOT = $PSScriptRoot
 $REPO_DIR = Join-Path $ROOT "server"
-$REPO_URL = "https://github.com/Mming-Lab/minecraft-bedrock-mcp-server.git"
+
+# server/ は git submodule（dobachi/minecraft-bedrock-education-mcp の
+# legacy-chat-receive ブランチ）で、コミット単位で固定されている。
+#
+# 固定する理由: Mming-Lab の上流は 2026-08 に全面書き換えされ（アドオン経由の
+# ブリッジ、ポート19131、ツール群も別物）、このプロジェクトが前提にしている
+# ツール（build_cube / agent / world など）は残っていない。ブランチ先端を
+# 追うと環境ごと壊れるため、submodule で SHA を固定する。
 
 Write-Host "=== Minecraft Bedrock MCP Server setup ===" -ForegroundColor Cyan
 
@@ -26,15 +33,15 @@ if ($nodeMajor -lt 18) {
     Write-Warning "Node.js $nodeVersion detected. 18 or higher recommended."
 }
 
-if (Test-Path $REPO_DIR) {
-    Write-Host "[1/3] Updating existing repo..." -ForegroundColor Green
-    Push-Location $REPO_DIR
-    git pull --ff-only
+Write-Host "[1/3] Syncing the server submodule..." -ForegroundColor Green
+Push-Location $ROOT
+git rev-parse --git-dir *> $null
+if ($LASTEXITCODE -ne 0) {
     Pop-Location
-} else {
-    Write-Host "[1/3] Cloning repo..." -ForegroundColor Green
-    git clone $REPO_URL $REPO_DIR
+    throw "$ROOT is not a git checkout. Clone this repository instead of downloading it, so the server submodule can be fetched."
 }
+git submodule update --init server
+Pop-Location
 
 Push-Location $REPO_DIR
 

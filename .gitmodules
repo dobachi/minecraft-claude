@@ -1,0 +1,4 @@
+[submodule "server"]
+	path = server
+	url = https://github.com/dobachi/minecraft-bedrock-education-mcp.git
+	branch = legacy-chat-receive
