@@ -27,6 +27,16 @@ MCP サーバは `run-server.cmd`（Windows）または `run-server.sh`（WSL2/L
 11. **接続状態はサーバ側で確かめる**：**Minecraft の画面表示は接続の証拠にならない**。WebSocket が切れても Minecraft は明示的に知らせないことがあり、ワールド内に Agent が見えていても接続とは無関係。疑わしいときは `world get_connection_info` など読み取り系を呼んで実際に応答があるかを確認する。「繋がっているはず」で操作を続けない。
 12. **マルチプレイでのプレイヤー識別**：socket-be がマルチプレイ安全のため一部 API を無効化しているため、`uuid` / `deviceId` は空、`isLoaded` は常に false、`world get_players` の `isLocal` は全員 false になる。**ローカルプレイヤーの判定は `player get_info` の `isLocalPlayer` を使う**。複数人が接続しているサーバでは、対象を `player_name` で明示して呼ぶ。
 13. **足元が地面とは限らない**：`get_top_solid_block` がプレイヤーの遥か下（洞窟の底など）を返すことがある。空中や洞窟の上にいる場合、座標をそのまま信じて建築すると宙に浮いた構造物になる。建築前に対象範囲の地形を確認する。
+14. **変更コマンドは個別に実行して statusCode を見る（重要）**：`sequence` は各ステップを "Command executed" としか要約せず、**`statusCode` を返さない**。そのため構文エラーや失敗したブロック設置が成功に見える。実測で2回この落とし穴を踏んだ（`oak_door` という無効IDでのドア設置失敗、地中への召喚）。
+    - ワールドを変更するコマンド（`run_command` の `setblock` / `summon` / `tp` など）は `sequence` にまとめず**1つずつ呼び、`statusCode: 0` を確認する**
+    - `sequence` でまとめてよいのは、読み取り系と、失敗しても実害のないもの（`send_message` など）
+    - 原則3の「往復数を最小化」より優先する。失敗を検出できない往復削減は割に合わない
+15. **「実行できた」と「意図通りになった」は別**：`summon` の `wasSpawned: true` はコマンドが通ったことしか意味しない。地中に召喚すれば直後に窒息して消える。**変更のあとは読み取りで裏を取る**。
+    - エンティティ：`testfor @e[type=<mob>,x=..,y=..,z=..,dx=..,dy=..,dz=..]` で対象範囲に居ることを確認する
+    - ブロック：`testforblock <x> <y> <z> <block>` で確認する。ブロック状態も `["open_bit"=true]` のように指定して調べられる
+    - **エンティティを出す前は `get_top_solid_block` で地表 Y を取り、その +1 に出す**。`player get_location` の Y は空きスペースを意味しない（地表ブロックそのものの Y が返ることがある）
+16. **ブロックIDは Bedrock の実際の名前を確認する**：Java 版の名前とは違うものがある（例：オークのドアは `oak_door` ではなく **`wooden_door`**）。疑わしいときは `minecraft_wiki` を引くか、`testforblock` に名前を渡して有効かどうかを先に確かめる。無効なIDは構文エラーになるが、`sequence` の中では黙って失敗する（原則14）。
+17. **`blocks query_block_data` は単一座標でも巨大な応答を返す**：実測で約94,000トークン。地表の高さやブロック名を知りたいだけなら `get_top_solid_block` か `testforblock` を使う。
 
 ## 応答スタイル
 
