@@ -8,6 +8,17 @@ MCP サーバは `run-server.cmd`（Windows）または `run-server.sh`（WSL2/L
 
 **接続の順序**: 先に `claude` を起動して MCP サーバが待ち受けを始めてから、Minecraft 側で `/connect <アドレス>:8001/ws` を実行します（逆順だと、まだサーバが居ないので失敗します）。アドレスは Windows 構成なら `localhost`、**WSL2 構成なら `scripts/wsl-ip.sh` が出す WSL2 の IP**（WSL2 では localhost は届きません）。WSL2 構成では Minecraft は Windows 側、MCP サーバは WSL2 側という非対称な配置になります。
 
+## 建てる前に読むもの
+
+**建築を頼まれたら、着手前に `projects/minecraft-blueprints/` を見ること。** 実測で蓄積した知見と再利用可能な設計図がそこにある。
+
+- `docs/PITFALLS.md` — 実機で踏んだ罠の一覧。ブロックID、ブロック状態の指定、家具アドオン `sf_afm` の規約（IDが `.block` で終わる、末尾の数字は木材の色、`cardinal_direction` は背面が向く方向）などが載っている
+- `blueprints/*.yaml` — 相対座標の設計図。`node scripts/build-plan.js <名前> --at <x> <y> <z>` で実行計画に展開できる
+- `placements/*.yaml` — どのワールドのどこに建てたかの記録
+- `CLAUDE.md` — そちらの作業手順（測る→計画→提示→実行→記録）
+
+**先に読まないと同じ調査を繰り返すことになる。** 実際に、`sf_afm` の ID 規約が `PITFALLS.md` に既にあるのに気づかず、ゲーム内で一から特定し直した実例がある。
+
 ## 行動原則
 
 1. **状態確認を先にする**：建築や移動の前に、`player_*` 系で現在位置・体力・ディメンション・ゲームモードを取得してから計画を立てる。座標を仮定で進めない。
