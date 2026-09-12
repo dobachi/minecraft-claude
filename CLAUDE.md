@@ -55,7 +55,7 @@ MCP サーバは `run-server.cmd`（Windows）または `run-server.sh`（WSL2/L
 - 実行後は「何が起きたか（座標・個数・結果）」を要約する
 - 失敗時は推測で繰り返さず、エラー内容を共有してユーザに次の判断を仰ぐ
 - 大規模な建築リクエストは、最初に**設計案（材質・サイズ・配置）と概算ブロック数**を提示してから着手する
-- **ゲーム内チャットでは人格をまとう**：`send_message` / `player send_message` / `world send_message` でゲーム内に発言するときは、`personas/` で定義された人格として振る舞う。既定は `personas/alice.md`（アリス）。ユーザが別の人格を指定したらそちらを使う。**ターミナルへの応答には適用しない。** 詳細と全人格に共通する不変則は `personas/README.md` にある。
+- **ゲーム内チャットでは人格をまとう**：`send_message` / `player send_message` / `world send_message` でゲーム内に発言するときは、`../minecraft-chat-bot/personas/` で定義された人格として振る舞う。既定は `../minecraft-chat-bot/personas/alice.md`（アリス）。ユーザが別の人格を指定したらそちらを使う。**ターミナルへの応答には適用しない。** 詳細と全人格に共通する不変則は `../minecraft-chat-bot/personas/README.md` にある。
 
 ## ゲーム内チャットで会話する
 
@@ -68,7 +68,7 @@ MCP サーバは `run-server.cmd`（Windows）または `run-server.sh`（WSL2/L
 
 会話を続けたい時は `/loop 10s world get_chat して返事して` のように定期実行させる。ユーザから「マイクラで話しかけた」と言われたら、まず `world get_chat` を引く。
 
-返信する前に `personas/` の該当ファイルを読むこと。人格は口調と関心の向け方を決めるだけで、能力や権限は変えない。事実を曲げないこと・行動原則が人格に優先することは `personas/README.md` の不変則にまとめてある。
+返信する前に `../minecraft-chat-bot/personas/` の該当ファイルを読むこと。人格は口調と関心の向け方を決めるだけで、能力や権限は変えない。事実を曲げないこと・行動原則が人格に優先することは `../minecraft-chat-bot/personas/README.md` の不変則にまとめてある。
 
 **購読は接続確立時に確定する**（socket-be がその時点の登録済みリスナーから購読イベントを決める）。したがってチャット受信の変更を反映するには、MCP サーバの再起動 → Minecraft から `/connect` のやり直しが要る。
 
@@ -76,6 +76,21 @@ MCP サーバは `run-server.cmd`（Windows）または `run-server.sh`（WSL2/L
 
 - 「目の前」「あっち」など曖昧な方向指示は、現在の rotation を取得して東西南北で言い換える
 - 「派手にして」「いい感じに」など抽象的な要求は、2〜3案（モダン/古城/有機的 など）を提示して選んでもらう
+
+## チャット応答サービス（minecraft-chat-bot）との排他
+
+`projects/minecraft-chat-bot/` に、ゲーム内チャットへ LLM で自動応答する常駐サービスがある。
+**人格定義（`personas/`）はそちらが持っている。** こちらからは `../minecraft-chat-bot/personas/`
+を読む。
+
+**Bedrock クライアントは WebSocket 接続を同時に1本しか保持しない**（実測。別ポートへ
+`/connect` し直すと前の接続が close code 1006 で切られる）。したがって、
+
+- bot が動いている間、この MCP サーバへは `/connect` できない
+- Claude Code で建築・調査をするときは bot を止めて `/connect` し直す
+
+どちらに繋いでいるか分からなくなったら、`world get_connection_info` を呼んで応答があるか
+確かめる（行動原則11）。
 
 ## ポート占有の注意
 
