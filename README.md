@@ -140,17 +140,22 @@ CheckNetIsolation LoopbackExempt -a -n="Microsoft.MinecraftUWP_8wekyb3d8bbwe"
 CheckNetIsolation LoopbackExempt -s | Select-String "Minecraft"
 ```
 
-#### 4-b. 暗号化WebSocket要求の解除（初回のみ）
+#### 4-b. 暗号化WebSocket要求について
 
-Minecraft Bedrock は既定で TLS 暗号化された WebSocket (`wss://`) しか受け付けない。MCPサーバはローカル通信なので平文 (`ws://`) で動作するため、この要求を OFF にする必要がある。
+ゲーム側の設定「**暗号化された Websockets を必須にする**」（設定 → 一般 → プロフィール）は、
+**既定の構成なら ON のままでよい。** MCPサーバ（socket-be）が接続直後に鍵交換を行い、
+アプリ層の暗号（ECDH + AES-256-CFB8）で喋るため。
 
-Minecraft 内で：
+OFF にする必要があるのは、**中継ハブ越しに使うとき**（`--disable-encryption` を付けて
+起動する場合）だけ。ハブは鍵交換を代行できないため、そのときは平文になる。
 
-1. **設定 (Settings)** を開く
-2. **一般 (General)** タブ → **プロフィール (Profile)** セクション
-3. **「暗号化された Websockets を必須にする」（Require Encrypted Websockets）** を **OFF**
+**ここが噛み合っていないと、症状は「接続できたのに無反応」になる。** ゲーム側が
+暗号化を要求しているのにサーバが鍵交換をしないと、WebSocket の接続は成立したまま
+購読だけが `statusCode -2147418107`（暗号化されたセッションが必要）で拒否される。
+`/connect` は成功して見えるので気づきにくい（2026-09-20 に chat-bot 側で実際に踏んだ）。
 
-未解除の場合「Websocket サーバーへの要求が拒否されました。設定に移動して有効にしてください」と表示される。
+接続時に「Websocket サーバーへの要求が拒否されました。設定に移動して有効にしてください」
+と表示される場合は、そもそも `/connect` 自体が許可されていない（この設定とは別）。
 
 #### 4-c. ワールド側の準備
 
@@ -445,6 +450,16 @@ socket-be は接続中のワールドごとに、入退室を検知するため�
 WSL2 構成では 1 往復がおよそ 150ms（`world get_connection_info` の `averagePing` で実測）かかり、コマンドは直列化されるため、この常時ポーリングがゲーム側の体感を重くする。複数人がそれぞれ `/connect` すると接続数の分だけ倍になる。
 
 そこで submodule 側で**既定を 10 秒に緩めてある**。変えたい場合は `--list-interval=<ミリ秒>` を渡す（`--port=` と同じ形式）。
+
+### `--disable-encryption`（中継ハブ越しに使うときだけ）
+
+socket-be は既定で接続直後に鍵交換（`ws:encryptionRequest`）を行い、その応答を待って
+から World を公開する。**中継ハブ**（`../minecraft-mc-hub`。chat-bot と MCP を1本の
+WebSocket で両立させる層）を手前に挟むと、ハブは鍵交換を代行できないため接続確立の
+まま止まる。ハブ越しに使うときだけ `--disable-encryption` を付ける。
+
+付けると平文になるので、**ゲーム側の「暗号化された Websockets を必須にする」を OFF に
+する必要がある**（4-b 参照）。直接繋ぐ通常の使い方では付けないこと。
 
 ```bash
 ./apply-config.sh --output-dir .   # 生成後、.mcp.json の args に --list-interval=1000 を足す
