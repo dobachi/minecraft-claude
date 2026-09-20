@@ -146,8 +146,8 @@ CheckNetIsolation LoopbackExempt -s | Select-String "Minecraft"
 **既定の構成なら ON のままでよい。** MCPサーバ（socket-be）が接続直後に鍵交換を行い、
 アプリ層の暗号（ECDH + AES-256-CFB8）で喋るため。
 
-OFF にする必要があるのは、**中継ハブ越しに使うとき**（`--disable-encryption` を付けて
-起動する場合）だけ。ハブは鍵交換を代行できないため、そのときは平文になる。
+中継ハブ（`../minecraft-mc-hub`）越しに使うときも **ON のままでよい**。ハブが
+ゲームに対しても消費者に対しても鍵交換をするようになったため（2026-09-20）。
 
 **ここが噛み合っていないと、症状は「接続できたのに無反応」になる。** ゲーム側が
 暗号化を要求しているのにサーバが鍵交換をしないと、WebSocket の接続は成立したまま
@@ -451,15 +451,15 @@ WSL2 構成では 1 往復がおよそ 150ms（`world get_connection_info` の `
 
 そこで submodule 側で**既定を 10 秒に緩めてある**。変えたい場合は `--list-interval=<ミリ秒>` を渡す（`--port=` と同じ形式）。
 
-### `--disable-encryption`（中継ハブ越しに使うときだけ）
+### `--disable-encryption`（逃げ道。普段は要らない）
 
 socket-be は既定で接続直後に鍵交換（`ws:encryptionRequest`）を行い、その応答を待って
-から World を公開する。**中継ハブ**（`../minecraft-mc-hub`。chat-bot と MCP を1本の
-WebSocket で両立させる層）を手前に挟むと、ハブは鍵交換を代行できないため接続確立の
-まま止まる。ハブ越しに使うときだけ `--disable-encryption` を付ける。
+から World を公開する。中継ハブ（`../minecraft-mc-hub`）は**この申し込みに応じる**ので、
+ハブ越しでもこのフラグは要らない（2026-09-20 に疑似クライアントで確認）。
 
-付けると平文になるので、**ゲーム側の「暗号化された Websockets を必須にする」を OFF に
-する必要がある**（4-b 参照）。直接繋ぐ通常の使い方では付けないこと。
+残してあるのは、鍵交換に応じない中継や道具を手前に挟むときの逃げ道として。付けると
+平文になるため、**ゲーム側の「暗号化された Websockets を必須にする」を OFF にしないと
+接続できているのに無反応になる**（4-b 参照）。
 
 ```bash
 ./apply-config.sh --output-dir .   # 生成後、.mcp.json の args に --list-interval=1000 を足す
